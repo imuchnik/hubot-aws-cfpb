@@ -29,8 +29,85 @@ getReservationTags = (args) ->
   ]
   return reservationTags
 
+reservations_from_ec2_instances = (err, instances, msg) ->
+  return
+  messages = []
+  for instance in instances
+    name = '[NoName]'
+    for tag in instance.Tags when tag.Key is 'Name'
+      name = tag.Value
+    description = ''
+    for tag in instance.Tags when tag.Key is 'Description'
+      description = tag.Value
+    reservationUser = ''
+    for tag in instance.Tags when tag.Key is 'ReservationUser'
+      reservationUser = tag.Value
+    reservationTime = ''
+    for tag in instance.Tags when tag.Key is 'ReservationTime'
+      reservationTime = tag.Value
+    reservationBranch = ''
+    for tag in instance.Tags when tag.Key is 'ReservationBranch'
+      reservationBranch = tag.Value
+  reservationDescription = ''
+    for tag in instance.Tags when tag.Key is 'ReservationDescription'
+      reservationDescription = tag.Value
+
+    messages.push({
+      state: instance.State.Name
+      id: instance.InstanceId
+      type: instance.InstanceType
+      ip: instance.PrivateIpAddress
+      name: name || '[NoName]'
+      description: description || ''
+      reservationUser: reservationUser || ''
+      reservationBranch: reservationBranch || ''
+      reservationDescription: reservationDescription || ''
+      reservationTime: reservationTime || ''
+    })
+
+  messages.sort (a, b) ->
+    moment(a.time) - moment(b.time)
+
+  resp = ""
+  if messages.length
+    resp = "\n| id | ip | name | state | description | type | time reserved | user | branch | comments |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
+
+    for m in messages
+      resp += "| #{m.id} | #{m.ip} | #{m.name} | #{m.state} | #{m.description} | #{m.type} | #{m.reservationTime} | #{m.reservationUser} | #{m.reservationBranch} | #{m.reservationDescription} | \n"
+
+    resp += "---\n"
+    return msg.send resp
+  else
+    return msg.send "\n[None]\n"
+
 module.exports = (robot) ->
   robot.respond /ec2 reserve (.*)$/i, (msg) ->
     instance = msg.match[1].split(/\s+/)[0]
     reservation = getReservationTags(msg.match[1])
     reserveForDeploy(msg, instance, reservation)
+
+  robot.respond /ec2 show reservations$/i (msg) ->
+    params = {
+      DryRun: true || false,
+      Filters: [
+        {
+          Name: 'tag-key',
+          Values: [
+            'ReservationUser'
+          ]
+        }],
+
+      MaxResults: 0,
+      NextToken: 'STRING_VALUE'
+    };
+    instances = ec2.describeInstances params, (err, res) ->
+    if err
+      error(err)
+    else
+      instances = []
+
+      for reservation in res.Reservations
+        for instance in reservation.Instances
+          instances.push(instance)
+
+    reservations_from_ec2_instances(err, instances, msg)
